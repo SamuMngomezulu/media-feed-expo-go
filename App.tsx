@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  Modal,
+  TextInput, // New import for the search input
 } from "react-native";
 import { fetchPosts } from "./src/api/mockApi";
 import { Post } from "./src/data/posts";
@@ -17,9 +19,9 @@ import {
   scheduleReminder,
   addResponseListener,
 } from "./src/notifications";
+import { formatZar } from "./src/utils/money";
 
 export default function App() {
-  // Added types for state variables to catch potential issues before runtime
   const [items, setItems] = useState<Post[]>([]);
   const [page, setPage] = useState(1);
   const [nextPage, setNextPage] = useState<number | null>(1);
@@ -27,6 +29,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openedId, setOpenedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState(""); // New state for search query
 
   useEffect(() => {
     requestNotifPermissions().catch(() => {});
@@ -44,7 +47,6 @@ export default function App() {
         setNextPage(res.nextPage);
         setItems((prev) => {
           const merged = mode === "replace" ? res.items : [...prev, ...res.items];
-          // dedupe by id
           const map = new Map(merged.map((x) => [x.id, x]));
           return Array.from(map.values());
         });
@@ -78,6 +80,19 @@ export default function App() {
     [items, openedId]
   );
 
+  // Filter items based on searchQuery
+  const filteredItems = useMemo(() => {
+    if (!searchQuery) {
+      return items;
+    }
+    const lowerCaseQuery = searchQuery.toLowerCase();
+    return items.filter(
+      (item) =>
+        item.title.toLowerCase().includes(lowerCaseQuery) ||
+        item.supplier.toLowerCase().includes(lowerCaseQuery)
+    );
+  }, [items, searchQuery]);
+
   const footer = () => (
     <View style={styles.footer}>
       {loading && <ActivityIndicator />}
@@ -97,7 +112,14 @@ export default function App() {
           </Pressable>
         ) : null}
       </View>
-      {items.length === 0 && loading ? (
+      {/* Search Input */}
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search posts..."
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+      />
+      {filteredItems.length === 0 && loading ? (
         <View style={styles.centered}>
           <ActivityIndicator />
           <Text style={styles.loadingText}>Loading...</Text>
@@ -105,19 +127,18 @@ export default function App() {
       ) : (
         <FlatList
           contentContainerStyle={styles.listContent}
-          data={items}
+          data={filteredItems} // Use filteredItems here
           keyExtractor={(it) => it.id}
           renderItem={({ item }) => (
             <PostCard
               post={item}
               onOpen={(p) => setOpenedId(p.id)}
-              // This provides immediate visual confirmation to the user, improving UX.
               onRemind={async (p) => {
                 const when = p.dueAt
                   ? new Date(p.dueAt)
                   : new Date(Date.now() + 5000);
                 await scheduleReminder(p.id, p.title, when);
-                alert(`Reminder scheduled for "${p.title}"!`); 
+                alert(`Reminder scheduled for "${p.title}"!`);
               }}
             />
           )}
@@ -130,20 +151,29 @@ export default function App() {
         />
       )}
 
-      {selected && (
-        <View style={styles.detailPanel}>
-          <Text style={styles.detailTitle}>{selected.title}</Text>
-          <Text style={styles.detailSub}>{selected.supplier}</Text>
-          <Pressable onPress={() => setOpenedId(null)} style={styles.closeBtn}>
-            <Text style={styles.closeTxt}>Close</Text>
-          </Pressable>
-        </View>
-      )}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={!!selected}
+        onRequestClose={() => {
+          setOpenedId(null);
+        }}
+      >
+        {selected && (
+          <View style={styles.modalView}>
+            <Text style={styles.modalTitle}>{selected.title}</Text>
+            <Text style={styles.modalSupplier}>{selected.supplier}</Text>
+            <Text style={styles.modalAmount}>{formatZar(selected.amountZar)}</Text>
+            <Pressable onPress={() => setOpenedId(null)} style={styles.closeBtn}>
+              <Text style={styles.closeTxt}>Close</Text>
+            </Pressable>
+          </View>
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// Best practices: Using StyleSheet for better performance and organization
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -186,35 +216,44 @@ const styles = StyleSheet.create({
   footerText: {
     color: "#666",
   },
-  detailPanel: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#fff",
-    padding: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
+  modalView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 20,
   },
-  detailTitle: {
-    fontWeight: "700",
-    fontSize: 16,
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
   },
-  detailSub: {
-    color: "#666",
-    marginTop: 4,
+  modalSupplier: {
+    fontSize: 18,
+    color: '#666',
+    marginBottom: 10,
+  },
+  modalAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'green',
   },
   closeBtn: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
+    marginTop: 20,
+    padding: 10,
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
   },
   closeTxt: {
-    color: "#43b0a1",
+    color: "#fff",
     fontWeight: "600",
+  },
+  searchInput: {
+    height: 40,
+    borderColor: 'gray',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginHorizontal: 12,
+    marginVertical: 10,
+    paddingHorizontal: 10,
   },
 });
